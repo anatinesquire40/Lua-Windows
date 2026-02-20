@@ -1,9 +1,9 @@
 static const std::unordered_map<std::string, std::string> typeAliases = {
-    { "i", "integer" }, { "ir", "integerref" },
-    { "n", "number" }, { "nr", "numberref" },
-    { "s", "string" }, { "u", "userdata" },
-    { "b", "boolean" }, { "br", "booleanref" },
-    { "p", "lightuserdata" }, { "v", "void" }
+    { "i", "integer" }, { "b", "boolean" },
+    { "n", "number" },
+    { "s", "string" },
+    { "p", "lightuserdata" }, { "u", "userdata"},
+    { "v", "void" }
 };
 
 static std::string normalize_type(const std::string& input) {
@@ -232,11 +232,68 @@ static void checkArgs(lua_State* L, bool hasNumber, std::variant<void*, lua_Numb
         }
     }
 }
+static void separateArgs(std::variant<void*, lua_Number>args[16], lua_Number argsf[16], void* argsa[16], int nargs)
+{
+    for (int i = 0; i < nargs; ++i) {
+        if (std::holds_alternative<lua_Number>(args[i])) {
+            argsf[i] = getArg<lua_Number>(args[i]);
+        } else {
+            argsa[i] = getArg<void*>(args[i]);
+        }
+    }
+}
+static int luacallany(lua_State* L)
+{
+    void* result = nullptr;
+    bool success = false;
+    uintptr_t exceptionCode = 0;
 
+    __try {
+        result = ((void* (*)())lua_touserdata(L, 1))();
+        success = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        success = false;
+        exceptionCode = GetExceptionCode();
+    }
+
+    if (!success) {
+        crashError(L, "Addr2Val", "function call has", exceptionCode);
+    }
+
+    lua_pushlightuserdata(L, result);
+    return 1;
+}
+
+static int luacallfloat(lua_State* L)
+{
+    lua_Number result = 0.0;
+    bool success = false;
+    uintptr_t exceptionCode = 0;
+
+    __try {
+        result = ((lua_Number(*)())lua_touserdata(L, 1))();
+        success = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        success = false;
+        exceptionCode = GetExceptionCode();
+    }
+
+    if (!success) {
+        crashError(L, "Addr2Val", "function call has", exceptionCode);
+    }
+
+    lua_pushnumber(L, result);
+    return 1;
+}
 static int executeProcAddr(lua_State* L) {
     FARPROC func = (FARPROC)lua_touserdata(L, lua_upvalueindex(1));
     luaL_checktype(L, lua_upvalueindex(2), LUA_TTABLE);
     const char* retType = lua_tostring(L, lua_upvalueindex(3));
+    int callbackidx = lua_upvalueindex(4);
+
+    bool hascustomback = lua_isfunction(L, callbackidx);
 
     int nargs = lua_gettop(L);
     if (nargs > 16) luaL_error(L, "too many arguments, max is 16");
@@ -253,51 +310,63 @@ static int executeProcAddr(lua_State* L) {
     for (int i = 1; i <= nargs; ++i) {
         const std::string& type = normalize_type(types[i - 1]);
         if (type == "integer") args[i - 1] = (void*)(intptr_t)luaL_checkinteger(L, i);
-        else if (type == "integerref") { lua_geti(L, i, 1); args[i - 1] = (void*)(intptr_t)luaL_checkinteger(L, -1); lua_pop(L, 1); }
         else if (type == "number") { args[i - 1] = luaL_checknumber(L, i); hasNumber = true; }
-        else if (type == "numberref") { lua_geti(L, i, 1); args[i - 1] = luaL_checknumber(L, -1); lua_pop(L, 1); hasNumber = true;; }
         else if (type == "boolean") args[i - 1] = (void*)(intptr_t)(lua_toboolean(L, i) ? 1 : 0);
-        else if (type == "booleanref") { lua_geti(L, i, 1); args[i - 1] = (void*)(intptr_t)(lua_toboolean(L, -1) ? 1 : 0); lua_pop(L, 1); }
         else if (type == "lightuserdata") args[i - 1] = lua_touserdata(L, i);
         else if (type == "string") args[i - 1] = (void*)luaL_checkstring(L, i);
         else if (type == "userdata") args[i - 1] = luaL_checkuserdata(L, i);
         else return luaL_error(L, "Unsupported arg type: %s", type.c_str());
     }
-	checkArgs(L, hasNumber, args, nargs);
     lua_Number numResult = 0;
-    uint64_t result = 0;
-    if (strcmp(retType, "number") == 0)
+    void* result = 0;
+    bool retNum = strcmp(retType, "number") == 0;
+    if (hascustomback)
     {
-        numResult = execFunc<lua_Number>(L, func, args, nargs, hasNumber);
+        lua_Number argsf[16] = {};
+        void* argsa[16] = {};
+        separateArgs(args, argsf, argsa, nargs);
+        lua_pushvalue(L, callbackidx);
+        lua_pushvalue(L, lua_upvalueindex(1));
+        lua_pushlightuserdata(L, argsa);
+        lua_pushlightuserdata(L, argsf);
+        lua_pushboolean(L, retNum);
+        lua_pushinteger(L, nargs);
+        if (retNum)
+        {
+            lua_pushcfunction(L, luacallfloat);
+        }
+        else {
+            lua_pushcfunction(L, luacallany);
+        }
+        lua_call(L, 6, 1);
+        if (!lua_isnil(L, -1))
+        {
+            if (retNum)
+            {
+                numResult = lua_tonumber(L, -1);
+            }
+            else {
+                result = lua_touserdata(L, -1);
+            }
+        }
     }
-    else
-    {
-        result = execFunc<uint64_t>(L,func, args, nargs, hasNumber);
+    else {
+        checkArgs(L, hasNumber, args, nargs);
+        if (retNum)
+        {
+            numResult = execFunc<lua_Number>(L, func, args, nargs, hasNumber);
+        }
+        else
+        {
+            result = execFunc<void*>(L, func, args, nargs, hasNumber);
+        }
     }
 
-
-    for (int i = 1; i <= nargs; ++i) {
-        const std::string& type = normalize_type(types[i - 1]);
-
-        if (type == "integerref") {
-            lua_pushinteger(L, (lua_Integer)(intptr_t)getArg<void*>(args[i - 1]));
-            lua_seti(L, i, 1);
-        }
-        else if (type == "numberref") {
-            lua_pushnumber(L, getArg<lua_Number>(args[i - 1]));
-            lua_seti(L, i, 1);
-        }
-        else if (type == "booleanref") {
-            lua_pushboolean(L, (intptr_t)getArg<void*>(args[i - 1]) != 0);
-            lua_seti(L, i, 1);
-        }
-    }
 
 
     if (strcmp(retType, "integer") == 0) lua_pushinteger(L, (lua_Integer)result);
     else if (strcmp(retType, "number") == 0) lua_pushnumber(L, numResult);
-    else if (strcmp(retType, "userdata") == 0) pushUdataWithMetatable<void*>(L, "void", (void*)result);
-    else if (strcmp(retType, "lightuserdata") == 0) lua_pushlightuserdata(L, (void*)result);
+    else if (strcmp(retType, "lightuserdata") == 0 or strcmp(retType, "userdata") == 0) lua_pushlightuserdata(L, (void*)result);
     else if (strcmp(retType, "string") == 0) lua_pushstring(L, (const char*)result);
     else if (strcmp(retType, "boolean") == 0) lua_pushboolean(L, (bool)result);
     else if (strcmp(retType, "void") == 0) return 0;
@@ -394,16 +463,20 @@ Lua_Function(Addr2Val)
         lua_pushvalue(L, 1);
         lua_pushvalue(L, 3);
         lua_pushstring(L, retType);
-        lua_pushcclosure(L, executeProcAddr, 3);
+        if (lua_isfunction(L, 4)) {
+            lua_pushvalue(L, 4);
+        }
+        else {
+            lua_pushnil(L);
+        }
+        lua_pushcclosure(L, executeProcAddr, 4);
         return 1;
     }
     else
     {
         static const std::unordered_map<std::string, std::function<void(lua_State*, void*)>> retHandlers = {
             { "integer", [](lua_State* L, void* p) { lua_pushinteger(L, directReadMem<lua_Integer>(L, (lua_Integer*)p, "integer")); } },
-            { "int32", [](lua_State* L, void* p) { lua_pushinteger(L, (lua_Integer)directReadMem<int32_t>(L, (int32_t*)p, "int32")); }},
             { "number",  [](lua_State* L, void* p) { lua_pushnumber(L, directReadMem<lua_Number>(L, (lua_Number*)p, "number")); } },
-            { "num32", [](lua_State* L, void* p) { lua_pushnumber(L, (lua_Number)directReadMem<float>(L, (float*)p, "num32"));  }},
             { "boolean", [](lua_State* L, void* p) { lua_pushboolean(L, directReadMem<bool>(L, (bool*)p, "boolean")); } },
             { "string",  [](lua_State* L, void* p) { 
                 if (lua_isinteger(L, 3)) {
@@ -415,7 +488,7 @@ Lua_Function(Addr2Val)
                 }
                 lua_pushstring(L, (const char*)p);
             } },
-            { "userdata",[](lua_State* L, void* p) { pushUdataWithMetatable<void*>(L, "void", p); } },
+            { "userdata",[](lua_State* L, void* p) { lua_pushlightuserdata(L, p); } },
             { "lightuserdata", [](lua_State* L, void* p) { lua_pushlightuserdata(L, p); } }
         };
 
@@ -527,13 +600,6 @@ Lua_Function(GetLuaStateAddr)
     return 1;
 }
 
-Lua_Function(Addr2Struct)
-{
-    void* addr = lua_touserdata(L, 1);
-    const char* name = luaL_checkstring(L, 2);
-    pushUdataWithMetatable<void*>(L, name, addr);
-    return 1;
-}
 Lua_Function(Num2Addr)
 {
     lua_Integer num = luaL_checkinteger(L, 1);

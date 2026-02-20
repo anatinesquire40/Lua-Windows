@@ -4,8 +4,7 @@ function CreateWindow(...)
 end
 MessageBox = MessageBoxEx
 function GetModuleHandle(mod)
-    local addr = Val2Addr(nil)
-    local hmod = Addr2Struct(addr, "HMODULE")
+    local hmod = Val2Addr(0)
     GetModuleHandleEx(nil, mod, hmod)
     return hmod
 end
