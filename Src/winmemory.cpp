@@ -109,32 +109,25 @@ static void makeDinamicStruct(lua_State* L, int tableIdx, size_t& size, std::vec
     size = buffer.size();
 }
 
-//-------------------- Trampolín --------------------
+
 template<typename T>
-T getArg(const std::variant<void*, lua_Number>& arg) {
+T getArg(const std::vector<std::variant<void*, lua_Number>>& args, size_t i) {
     if constexpr (std::is_same_v<T, lua_Number>)
-        return std::get<lua_Number>(arg);
+        return std::get<lua_Number>(args[i]);
     else
-        return std::get<void*>(arg);
+        return std::get<void*>(args[i]);
 }
-/*
-struct FfiCall {
-    void* func;
-    uint64_t args[16];
-    int nargs;
-};*/
-//extern "C" uint64_t ffi_call_win64(FfiCall* call);
 
-// helper: llama a la función con N argumentos
+// Call with sign
 template<typename Ret, typename... Args, size_t... I>
-Ret callFunc(FARPROC func, std::variant<void*, lua_Number> args[16], std::index_sequence<I...>) {
-    return ((Ret(*)(Args...))func)(getArg<Args>(args[I])...);
+Ret callFunc(FARPROC func, const std::vector<std::variant<void*, lua_Number>>& args, std::index_sequence<I...>) {
+    return ((Ret(*)(Args...))func)(getArg<Args>(args, I)...);
 }
 
-// wrapper con SEH, hasta 16 argumentos
+// Select sign
 template<typename Ret>
-Ret execFunc(lua_State* L, FARPROC func, std::variant<void*, lua_Number> args[16], int nargs, bool hasNumber) {
-    Ret result{};              // tipo trivial
+Ret execFunc(lua_State* L, FARPROC func, const std::vector<std::variant<void*, lua_Number>>& args, int nargs, bool hasNumber) {
+    Ret result{};
     bool success = false;
     uintptr_t exceptionCode = 0;
 
@@ -224,7 +217,7 @@ Ret execFunc(lua_State* L, FARPROC func, std::variant<void*, lua_Number> args[16
     return result;
 }
 
-static void checkArgs(lua_State* L, bool hasNumber, std::variant<void*, lua_Number>args[16], int nargs)
+static void checkArgs(lua_State* L, bool hasNumber, const std::vector<std::variant<void*, lua_Number>>& args, int nargs)
 {
     for (int i = 0; i < nargs; ++i) {
         if (hasNumber && !std::holds_alternative<lua_Number>(args[i])) {
@@ -232,16 +225,18 @@ static void checkArgs(lua_State* L, bool hasNumber, std::variant<void*, lua_Numb
         }
     }
 }
-static void separateArgs(std::variant<void*, lua_Number>args[16], lua_Number argsf[16], void* argsa[16], int nargs)
+static void separateArgs(const std::vector<std::variant<void*, lua_Number>>& args, lua_Number* argsf, void** argsa, int nargs)
 {
     for (int i = 0; i < nargs; ++i) {
         if (std::holds_alternative<lua_Number>(args[i])) {
-            argsf[i] = getArg<lua_Number>(args[i]);
-        } else {
-            argsa[i] = getArg<void*>(args[i]);
+            argsf[i] = getArg<lua_Number>(args, i);
+        }
+        else {
+            argsa[i] = getArg<void*>(args, i);
         }
     }
 }
+
 static int luacallany(lua_State* L)
 {
     void* result = nullptr;
@@ -296,9 +291,9 @@ static int executeProcAddr(lua_State* L) {
     bool hascustomback = lua_isfunction(L, callbackidx);
 
     int nargs = lua_gettop(L);
-    if (nargs > 16) luaL_error(L, "too many arguments, max is 16");
+    if (!hascustomback && nargs > 16) luaL_error(L, "too many arguments, max is 16");
 
-    std::variant<void*, lua_Number> args[16];
+    std::vector<std::variant<void*, lua_Number>> args(nargs);
     std::vector<std::string> types;
     size_t typelen = lua_rawlen(L, lua_upvalueindex(2));
     for (size_t i = 1; i <= typelen; ++i) {
@@ -322,11 +317,12 @@ static int executeProcAddr(lua_State* L) {
     bool retNum = strcmp(retType, "number") == 0;
     if (hascustomback)
     {
-        lua_Number argsf[16] = {};
-        void* argsa[16] = {};
+        lua_Number* argsf = new lua_Number[nargs]();
+        void** argsa = new void* [nargs]();
         separateArgs(args, argsf, argsa, nargs);
         lua_pushvalue(L, callbackidx);
         lua_pushvalue(L, lua_upvalueindex(1));
+        lua_pushvalue(L, lua_upvalueindex(2));
         lua_pushlightuserdata(L, argsa);
         lua_pushlightuserdata(L, argsf);
         lua_pushboolean(L, retNum);
@@ -338,7 +334,7 @@ static int executeProcAddr(lua_State* L) {
         else {
             lua_pushcfunction(L, luacallany);
         }
-        lua_call(L, 6, 1);
+        lua_call(L, 7, 1);
         if (!lua_isnil(L, -1))
         {
             if (retNum)
@@ -349,6 +345,8 @@ static int executeProcAddr(lua_State* L) {
                 result = lua_touserdata(L, -1);
             }
         }
+        delete[] argsf;
+        delete[] argsa;
     }
     else {
         checkArgs(L, hasNumber, args, nargs);
