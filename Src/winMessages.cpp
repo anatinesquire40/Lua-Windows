@@ -108,7 +108,7 @@ static void table_to_wndclassexa(lua_State* L, int index, WNDCLASSEXA* wc)
     index = lua_absindex(L, index);
     lua_getfield(L, index, "hInstance");
     if (lua_isuserdata(L, -1))
-        wc->hInstance = *(HINSTANCE*)lua_touserdata(L, -1);
+        wc->hInstance = (HINSTANCE)lua_touserdata(L, -1);
     else
         wc->hInstance = GetModuleHandleA(NULL);
     lua_pop(L, 1);
@@ -125,7 +125,7 @@ static void table_to_wndclassexa(lua_State* L, int index, WNDCLASSEXA* wc)
     }
     else if (lua_isuserdata(L, -1))
     {
-        wc->lpfnWndProc = *(WNDPROC*)lua_touserdata(L, -1);
+        wc->lpfnWndProc = (WNDPROC)lua_touserdata(L, -1);
     }
 	else
     {
@@ -148,21 +148,21 @@ static void table_to_wndclassexa(lua_State* L, int index, WNDCLASSEXA* wc)
 
     lua_getfield(L, index, "hIcon");
     if (lua_isuserdata(L, -1))
-        wc->hIcon = *(HICON*)lua_touserdata(L, -1);
+        wc->hIcon = (HICON)lua_touserdata(L, -1);
     else
         wc->hIcon = NULL;
     lua_pop(L, 1);
 
     lua_getfield(L, index, "hCursor");
     if (lua_isuserdata(L, -1))
-        wc->hCursor = *(HCURSOR*)lua_touserdata(L, -1);
+        wc->hCursor = (HCURSOR)lua_touserdata(L, -1);
     else
         wc->hCursor = LoadCursorA(NULL, IDC_ARROW);
     lua_pop(L, 1);
 
     lua_getfield(L, index, "hbrBackground");
     if (lua_isuserdata(L, -1))
-        wc->hbrBackground = *(HBRUSH*)lua_touserdata(L, -1);
+        wc->hbrBackground = (HBRUSH)lua_touserdata(L, -1);
     else if (lua_isinteger(L, -1)) {
         wc->hbrBackground = (HBRUSH)lua_tointeger(L, -1);
     }

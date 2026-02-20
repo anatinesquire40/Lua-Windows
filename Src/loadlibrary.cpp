@@ -18,7 +18,6 @@ Lua_Function(GetProcAddress)
 
     if (!hMod || !funcName)
         return luaL_error(L, "Invalid module handle or function name");
-
     FARPROC func = GetProcAddress(hMod, funcName);
     lua_pushlightuserdata(L, (void*)func);
     return 1;
