@@ -1,6 +1,6 @@
-# Lua Windows
+# LuIbexWin
 
-**Lua Windows (`lwindows`)** is a specialized module that allows Lua to interact directly with the Windows API (Win32).  
+**LuIbexWin** is a specialized module that allows Lua to interact directly with the Windows API (Win32).  
 It provides access to native functions, structures, messages, and system utilities, making Lua a powerful tool for developing applications and scripts that require deep control of the Windows environment.
 
 ### Compatibility
@@ -10,12 +10,12 @@ Lua 5.3 and newer.
 
 ## Prerequisites
 
-Before compiling and using `lwindows`, make sure you have:
+Before compiling and using `LuIbexWin`, make sure you have:
 
 1. **CMake ≥ 3.16**  
 2. **Visual Studio** with C++ and MASM support  
 3. **Lua** installation (5.3 or newer) and in x64
-4. Sufficient disk space (as `lwindows` exposes many functions and complex structures)
+4. Sufficient disk space (as `LuIbexWin` exposes many functions and complex structures)
 
 ---
 
@@ -39,18 +39,18 @@ Before compiling and using `lwindows`, make sure you have:
    cmake --build . --config Release
    ```
 
-   This will produce `lwindows.dll` ready to use.
+   This will produce `luibexwin.dll` ready to use.
 
 ---
 
 ## Installation
 
-To make Lua use `lwindows` correctly:
+To make Lua use `LuIbexWin` correctly:
 
 1. **Lua Modules:**
-   Copy the `windows` directory (containing `h.lua` and other scripts) into your Lua modules folder (`package.path`).
+   Copy the `ibexwin` directory (containing `h.lua` and other scripts) into your Lua modules folder (`package.path`).
 
 2. **Native Modules:**
-   Copy `lwindows.dll` into your Lua native libraries folder (`package.cpath`).
+   Copy `luibexwin.dll` into your Lua native libraries folder (`package.cpath`).
 
-3. Make sure `package.path` and `package.cpath` include these directories so that `require "windows.h"` work properly.
+3. Make sure `package.path` and `package.cpath` include these directories so that `require "ibexwin.h"` work properly.
