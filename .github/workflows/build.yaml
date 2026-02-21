@@ -1,0 +1,53 @@
+name: 'Build'
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  install-vulkan-sdk:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        version: ['5.3.6']
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install build tools
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt update && sudo apt install -y build-essential
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            xcode-select --install || true
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            choco install mingw make -y
+            setx PATH "$env:PATH;C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin"
+          fi
+    - name: Download lua
+      run: |
+        curl -L -R -O https://www.lua.org/ftp/lua-${{ matrix.version }}.tar.gz
+        tar zxf lua-${{ matrix.version }}.tar.gz
+        cd lua-${{ matrix.version }}/src
+        mkdir -p ../../lua/include ../../lua/lib
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          make linux test
+          cp *.h ../../lua/include
+          cp liblua.a ../../lua/lib/
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          make macosx test
+          cp *.h ../../lua/include
+          cp liblua.a ../../lua/lib/
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          make mingw
+          copy *.h ..\..\lua\include\
+          pexports.exe lua53.dll > lua53.def
+            dlltool -D lua53.dll -d lua53.def -l ..\..\lua\lib\lua.lib
+        fi
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake ..
+          cmake --build . --config Release
